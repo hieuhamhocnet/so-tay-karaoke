@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎤 K-Karaoke Pro (Sheet Sync)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --glass-bg: rgba(30, 41, 59, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --accent-color: #0ea5e9;
+            --neon-glow: 0 0 10px rgba(14, 165, 233, 0.5);
+        }
+
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            color: #f8fafc; font-family: 'Inter', sans-serif;
+            min-height: 100vh; padding-top: 30px; padding-bottom: 50px;
+        }
+
+        .glass-card {
+            background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border); border-radius: 16px; transition: all 0.3s ease;
+        }
+        .glass-card:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,0,0,0.5), var(--neon-glow); border-color: var(--accent-color); }
+
+        .category-btn {
+            background: transparent; color: #94a3b8; border: 1px solid var(--glass-border);
+            border-radius: 30px; padding: 8px 20px; margin: 5px; font-weight: 600; transition: all 0.3s;
+        }
+        .category-btn:hover, .category-btn.active { background: var(--accent-color); color: white; border-color: var(--accent-color); box-shadow: var(--neon-glow); }
+
+        .search-box { background: rgba(0,0,0,0.3); border: 1px solid var(--glass-border); color: white; border-radius: 30px; padding: 12px 25px; }
+        .search-box:focus { background: rgba(0,0,0,0.5); color: white; border-color: var(--accent-color); box-shadow: none; }
+        .search-box::placeholder { color: #64748b; }
+
+        .song-title { font-size: 1.1rem; font-weight: 700; color: #38bdf8; }
+        .song-artist { font-size: 0.85rem; color: #cbd5e1; }
+        
+        .btn-play { background: #e11d48; border: none; border-radius: 8px; color: white; font-weight: 600; transition: 0.2s; }
+        .btn-play:hover { background: #be123c; transform: scale(1.02); color: white;}
+
+        .btn-favorite { background: rgba(255,255,255,0.1); border: none; border-radius: 50%; width: 40px; height: 40px; color: #94a3b8; transition: 0.2s; }
+        .btn-favorite.active { color: #f43f5e; background: rgba(244, 63, 94, 0.2); }
+        .btn-favorite:hover { transform: scale(1.1); }
+
+        .modal-content { background: #1e293b; color: white; border: 1px solid var(--glass-border); border-radius: 16px; }
+        .modal-header { border-bottom: 1px solid var(--glass-border); }
+        .btn-close { filter: invert(1); }
+        .lyrics-box { background: #0f172a; padding: 20px; border-radius: 12px; white-space: pre-wrap; max-height: 450px; overflow-y: auto; font-size: 1rem; line-height: 1.6; color: #e2e8f0; border: 1px solid var(--glass-border); }
+        
+        .loader { border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--accent-color); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 1060; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="text-center mb-4">
+        <h1 class="fw-bold" style="color: #38bdf8; text-shadow: 0 0 15px rgba(56, 189, 248, 0.4);">
+            <i class="fa-solid fa-microphone-lines"></i> K-KARAOKE PRO
+        </h1>
+        <p class="text-muted"><i class="fa-solid fa-cloud-arrow-down"></i> Tự động đồng bộ từ Google Sheets</p>
+    </div>
+
+    <div class="row mb-4 justify-content-center">
+        <div class="col-md-8 position-relative">
+            <i class="fa-solid fa-magnifying-glass position-absolute" style="top: 15px; left: 25px; color: #64748b;"></i>
+            <input type="text" id="searchInput" class="form-control search-box" style="padding-left: 45px;" placeholder="Tìm tên bài hát, ca sĩ..." onkeyup="searchSongs()">
+        </div>
+    </div>
+
+    <div id="loadingArea" class="text-center my-5">
+        <div class="loader mb-3"></div>
+        <p class="text-info">Đang tải dữ liệu bài hát từ Google Sheets...</p>
+    </div>
+
+    <div class="text-center mb-4" id="categoryContainer" style="display: none;">
+        <button class="category-btn" id="btn-fav-tab" onclick="showFavorites()">
+            <i class="fa-solid fa-heart text-danger"></i> Bài Tủ
+        </button>
+        </div>
+
+    <div class="row g-4" id="songContainer"></div>
+</div>
+
+<div class="modal fade" id="songModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content glass-card">
+            <div class="modal-header">
+                <div>
+                    <h4 class="modal-title fw-bold text-info" id="modalTitle">Tên bài hát</h4>
+                    <span class="text-muted"><i class="fa-solid fa-user"></i> <span id="modalArtist"></span></span>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <a id="modalLink" href="#" target="_blank" class="btn btn-play w-100 mb-4 py-2">
+                    <i class="fa-brands fa-youtube"></i> Mở Bản Karaoke trên YouTube
+                </a>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-bold fs-5">Lời bài hát:</span>
+                    <button class="btn btn-sm btn-outline-info" onclick="copyLyrics()"><i class="fa-regular fa-copy"></i> Copy Lời</button>
+                </div>
+                <div id="modalLyrics" class="lyrics-box"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="toast-container">
+    <div id="actionToast" class="toast align-items-center text-bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body" id="toastMessage">Thao tác thành công!</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+<script>
+    /** ================= CẤU HÌNH GOOGLE SHEETS ================= 
+     * DÁN LINK BẠN COPY Ở BƯỚC 1 VÀO TRONG DẤU NGOẶC KÉP BÊN DƯỚI
+     */
+    const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRa-3OWpQw1l4r2MI9RQsA1HpmucFChVo-cWR0NfCeXmA9H8DFvZptH_AudYxeq8AKyGdrFYpP2m1C0/pub?gid=0&single=true&output=csv";
+    let karaokeDB = {}; 
+    let currentCategory = ""; 
+    let favorites = JSON.parse(localStorage.getItem('karaokeFavs')) || [];
+    const modal = new bootstrap.Modal(document.getElementById('songModal'));
+    const toastInfo = new bootstrap.Toast(document.getElementById('actionToast'));
+
+    // Hàm gọi dữ liệu từ Google Sheets
+    function fetchDataFromSheet() {
+        if (!SHEET_CSV_URL.includes("http")) {
+            document.getElementById('loadingArea').innerHTML = "<p class='text-danger'>❌ Bạn chưa dán Link Google Sheets CSV vào code.</p>";
+            return;
+        }
+
+        Papa.parse(SHEET_CSV_URL, {
+            download: true,
+            header: true,
+            complete: function(results) {
+                const data = results.data;
+                karaokeDB = {}; // Reset database
+
+                data.forEach(row => {
+                    if (!row.TenBai) return; // Bỏ qua dòng trống
+                    
+                    const cat = row.DanhMuc ? row.DanhMuc.trim() : "Chưa Phân Loại";
+                    if (!karaokeDB[cat]) karaokeDB[cat] = [];
+                    
+                    karaokeDB[cat].push({
+                        title: row.TenBai,
+                        artist: row.CaSi || "Đang cập nhật",
+                        link: row.Link || "#",
+                        lyrics: row.LoiBaiHat || "Chưa có lời"
+                    });
+                });
+
+                // Xử lý UI sau khi load xong
+                document.getElementById('loadingArea').style.display = 'none';
+                document.getElementById('categoryContainer').style.display = 'block';
+                
+                const categories = Object.keys(karaokeDB);
+                if (categories.length > 0) {
+                    currentCategory = categories[0]; // Mặc định chọn category đầu tiên
+                    renderCategories();
+                    renderSongs(karaokeDB[currentCategory]);
+                } else {
+                    document.getElementById('songContainer').innerHTML = "<p class='text-center'>Sheet của bạn chưa có bài hát nào!</p>";
+                }
+            },
+            error: function(err) {
+                document.getElementById('loadingArea').innerHTML = "<p class='text-danger'>❌ Lỗi tải dữ liệu. Hãy chắc chắn bạn đã Publish To Web dạng CSV.</p>";
+            }
+        });
+    }
+
+    // Các hàm Logic UI (Giữ nguyên từ bản Pro)
+    function renderCategories() {
+        const container = document.getElementById('categoryContainer');
+        const favBtn = document.getElementById('btn-fav-tab');
+        container.innerHTML = '';
+        container.appendChild(favBtn);
+        
+        Object.keys(karaokeDB).forEach(category => {
+            const btn = document.createElement('button');
+            btn.className = `category-btn ${category === currentCategory ? 'active' : ''}`;
+            btn.innerText = category;
+            btn.onclick = () => {
+                currentCategory = category;
+                document.getElementById('btn-fav-tab').classList.remove('active');
+                document.getElementById('searchInput').value = '';
+                renderCategories(); 
+                renderSongs(karaokeDB[currentCategory]);
+            };
+            container.appendChild(btn);
+        });
+    }
+
+    function renderSongs(songsArr, isFavTab = false) {
+        const container = document.getElementById('songContainer');
+        container.innerHTML = '';
+
+        if (songsArr.length === 0) {
+            container.innerHTML = `
+                <div class="col-12 text-center text-muted mt-5">
+                    <i class="fa-solid fa-music fs-1 mb-3 opacity-50"></i>
+                    <h5>Không tìm thấy bài hát nào.</h5>
+                </div>`;
+            return;
+        }
+
+        songsArr.forEach(song => {
+            const isFav = favorites.includes(song.title);
+            const col = document.createElement('div');
+            col.className = 'col-md-6 col-lg-4';
+            col.innerHTML = `
+                <div class="glass-card p-3 h-100 d-flex flex-column justify-content-between">
+                    <div class="d-flex justify-content-between align-items-start" style="cursor: pointer;" onclick="openSongModal('${song.title.replace(/'/g, "\\'")}')">
+                        <div>
+                            <div class="song-title">${song.title}</div>
+                            <div class="song-artist mt-1"><i class="fa-solid fa-microphone-lines fa-sm"></i> ${song.artist}</div>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top border-secondary">
+                        <button class="btn btn-sm btn-outline-light" onclick="openSongModal('${song.title.replace(/'/g, "\\'")}')">Hát Ngay</button>
+                        <button class="btn-favorite ${isFav ? 'active' : ''}" onclick="toggleFavorite(event, '${song.title.replace(/'/g, "\\'")}')" title="Thêm vào bài tủ">
+                            <i class="fa-solid fa-heart"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+            container.appendChild(col);
+        });
+    }
+
+    window.openSongModal = function(songTitle) {
+        let targetSong = getAllSongs().find(s => s.title === songTitle);
+        if (targetSong) {
+            document.getElementById('modalTitle').innerText = targetSong.title;
+            document.getElementById('modalArtist').innerText = targetSong.artist;
+            document.getElementById('modalLink').href = targetSong.link;
+            document.getElementById('modalLyrics').innerText = targetSong.lyrics;
+            modal.show();
+        }
+    };
+
+    window.searchSongs = function() {
+        const keyword = document.getElementById('searchInput').value.toLowerCase();
+        document.getElementById('btn-fav-tab').classList.remove('active');
+        const btns = document.querySelectorAll('.category-btn');
+        btns.forEach(b => b.classList.remove('active'));
+
+        if (keyword.trim() === '') {
+            renderCategories();
+            renderSongs(karaokeDB[currentCategory]);
+            return;
+        }
+        const results = getAllSongs().filter(song => song.title.toLowerCase().includes(keyword) || song.artist.toLowerCase().includes(keyword));
+        renderSongs(results);
+    };
+
+    window.showFavorites = function() {
+        currentCategory = ""; 
+        document.getElementById('searchInput').value = '';
+        renderCategories();
+        document.getElementById('btn-fav-tab').classList.add('active');
+        const favSongs = getAllSongs().filter(s => favorites.includes(s.title));
+        renderSongs(favSongs, true);
+    };
+
+    window.toggleFavorite = function(event, songTitle) {
+        event.stopPropagation(); 
+        const btn = event.currentTarget;
+        if (favorites.includes(songTitle)) {
+            favorites = favorites.filter(t => t !== songTitle);
+            btn.classList.remove('active');
+            showToast("Đã xóa khỏi Bài Tủ!", "text-bg-warning");
+            if (document.getElementById('btn-fav-tab').classList.contains('active')) showFavorites();
+        } else {
+            favorites.push(songTitle);
+            btn.classList.add('active');
+            showToast("Đã thêm vào Bài Tủ ❤️", "text-bg-success");
+        }
+        localStorage.setItem('karaokeFavs', JSON.stringify(favorites));
+    };
+
+    function getAllSongs() {
+        let all = [];
+        Object.values(karaokeDB).forEach(arr => all = all.concat(arr));
+        return all;
+    }
+
+    window.copyLyrics = function() {
+        const text = document.getElementById('modalLyrics').innerText;
+        navigator.clipboard.writeText(text).then(() => showToast("Đã copy lời bài hát!", "text-bg-primary"));
+    };
+
+    function showToast(message, colorClass) {
+        const toastEl = document.getElementById('actionToast');
+        document.getElementById('toastMessage').innerText = message;
+        toastEl.className = `toast align-items-center border-0 ${colorClass}`;
+        toastInfo.show();
+    }
+
+    // Khởi chạy: Lấy dữ liệu từ Google Sheets thay vì lấy mảng cứng
+    window.onload = fetchDataFromSheet;
+</script>
+
+</body>
+</html>
