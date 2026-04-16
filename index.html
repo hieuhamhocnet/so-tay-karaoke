@@ -45,7 +45,7 @@
         .btn-play { background: #e11d48; border: none; border-radius: 8px; color: white; font-weight: 600; transition: 0.2s; }
         .btn-play:hover { background: #be123c; transform: scale(1.02); color: white;}
 
-        .btn-favorite { background: rgba(255,255,255,0.1); border: none; border-radius: 50%; width: 40px; height: 40px; color: #94a3b8; transition: 0.2s; }
+        .btn-favorite { background: rgba(255,255,255,0.1); border: none; border-radius: 50%; width: 40px; height: 40px; color: #94a3b8; transition: 0.2s; display: flex; align-items: center; justify-content: center;}
         .btn-favorite.active { color: #f43f5e; background: rgba(244, 63, 94, 0.2); }
         .btn-favorite:hover { transform: scale(1.1); }
 
@@ -57,6 +57,17 @@
         .loader { border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--accent-color); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 1060; }
+
+        /* Style Phân Trang */
+        .page-btn { background: var(--glass-bg); color: white; border: 1px solid var(--glass-border); padding: 8px 16px; margin: 0 4px; border-radius: 8px; transition: 0.3s; font-weight: 600;}
+        .page-btn:hover:not(:disabled), .page-btn.active { background: var(--accent-color); border-color: var(--accent-color); color: white;}
+        .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* View Toggle Mode */
+        .view-btn { background: transparent; border: 1px solid var(--glass-border); color: #94a3b8; padding: 8px 15px; transition: 0.3s; }
+        .view-btn.active { background: var(--glass-border); color: #38bdf8; }
+        .view-btn:first-child { border-radius: 8px 0 0 8px; }
+        .view-btn:last-child { border-radius: 0 8px 8px 0; border-left: none;}
     </style>
 </head>
 <body>
@@ -85,9 +96,19 @@
         <button class="category-btn" id="btn-fav-tab" onclick="showFavorites()">
             <i class="fa-solid fa-heart text-danger"></i> Bài Tủ
         </button>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mb-3 d-none" id="toolBar">
+        <span class="text-muted" id="songCountInfo"></span>
+        <div>
+            <button class="view-btn active" id="btn-grid" onclick="setViewMode('grid')"><i class="fa-solid fa-border-all"></i></button>
+            <button class="view-btn" id="btn-list" onclick="setViewMode('list')"><i class="fa-solid fa-list"></i></button>
         </div>
+    </div>
 
     <div class="row g-4" id="songContainer"></div>
+
+    <div class="d-flex justify-content-center mt-5" id="paginationContainer"></div>
 </div>
 
 <div class="modal fade" id="songModal" tabindex="-1">
@@ -127,24 +148,28 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 
 <script>
-    /** ================= CẤU HÌNH GOOGLE SHEETS ================= 
-     * DÁN LINK BẠN COPY Ở BƯỚC 1 VÀO TRONG DẤU NGOẶC KÉP BÊN DƯỚI
-     */
     const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRa-3OWpQw1l4r2MI9RQsA1HpmucFChVo-cWR0NfCeXmA9H8DFvZptH_AudYxeq8AKyGdrFYpP2m1C0/pub?gid=0&single=true&output=csv";
+    
+    // Core State
     let karaokeDB = {}; 
     let currentCategory = ""; 
     let favorites = JSON.parse(localStorage.getItem('karaokeFavs')) || [];
+    
+    // View & Pagination State
+    let currentViewMode = 'grid'; // 'grid' hoặc 'list'
+    let currentRenderList = []; 
+    let currentPage = 1;
+    const ITEMS_PER_PAGE = 10;
+
     const modal = new bootstrap.Modal(document.getElementById('songModal'));
     const toastInfo = new bootstrap.Toast(document.getElementById('actionToast'));
 
-// Hàm gọi dữ liệu từ Google Sheets (Đã nâng cấp chống Cache)
     function fetchDataFromSheet() {
         if (!SHEET_CSV_URL.includes("http")) {
             document.getElementById('loadingArea').innerHTML = "<p class='text-danger'>❌ Bạn chưa dán Link Google Sheets CSV vào code.</p>";
             return;
         }
 
-        // KỸ THUẬT CACHE BUSTING: Thêm thời gian thực vào link để ép trình duyệt tải bản mới nhất
         const noCacheUrl = SHEET_CSV_URL + (SHEET_CSV_URL.includes('?') ? '&' : '?') + 't=' + new Date().getTime();
 
         Papa.parse(noCacheUrl, {
@@ -152,10 +177,9 @@
             header: true,
             complete: function(results) {
                 const data = results.data;
-                karaokeDB = {}; // Reset database
+                karaokeDB = {}; 
 
                 data.forEach(row => {
-                    // Bỏ qua nếu dòng trống
                     if (!row.TenBai || row.TenBai.trim() === "") return; 
                     
                     const cat = row.DanhMuc ? row.DanhMuc.trim() : "Chưa Phân Loại";
@@ -169,15 +193,15 @@
                     });
                 });
 
-                // Xử lý UI sau khi load xong
                 document.getElementById('loadingArea').style.display = 'none';
                 document.getElementById('categoryContainer').style.display = 'block';
+                document.getElementById('toolBar').classList.remove('d-none');
                 
                 const categories = Object.keys(karaokeDB);
                 if (categories.length > 0) {
                     currentCategory = categories[0]; 
                     renderCategories();
-                    renderSongs(karaokeDB[currentCategory]);
+                    renderSongs(karaokeDB[currentCategory], false, 1);
                 } else {
                     document.getElementById('songContainer').innerHTML = "<p class='text-center'>Sheet của bạn chưa có bài hát nào!</p>";
                 }
@@ -188,7 +212,6 @@
         });
     }
 
-    // Các hàm Logic UI (Giữ nguyên từ bản Pro)
     function renderCategories() {
         const container = document.getElementById('categoryContainer');
         const favBtn = document.getElementById('btn-fav-tab');
@@ -204,15 +227,30 @@
                 document.getElementById('btn-fav-tab').classList.remove('active');
                 document.getElementById('searchInput').value = '';
                 renderCategories(); 
-                renderSongs(karaokeDB[currentCategory]);
+                renderSongs(karaokeDB[currentCategory], false, 1); // Reset page 1
             };
             container.appendChild(btn);
         });
     }
 
-    function renderSongs(songsArr, isFavTab = false) {
+    // Logic Chuyển View Mode
+    window.setViewMode = function(mode) {
+        currentViewMode = mode;
+        document.getElementById('btn-grid').classList.toggle('active', mode === 'grid');
+        document.getElementById('btn-list').classList.toggle('active', mode === 'list');
+        renderSongs(currentRenderList, document.getElementById('btn-fav-tab').classList.contains('active'), currentPage);
+    };
+
+    // Render Bài Hát + Phân trang
+    function renderSongs(songsArr, isFavTab = false, page = 1) {
+        currentRenderList = songsArr;
+        currentPage = page;
+        
         const container = document.getElementById('songContainer');
         container.innerHTML = '';
+        
+        // Cập nhật thông tin số lượng
+        document.getElementById('songCountInfo').innerHTML = `<strong>${songsArr.length}</strong> bài hát`;
 
         if (songsArr.length === 0) {
             container.innerHTML = `
@@ -220,32 +258,90 @@
                     <i class="fa-solid fa-music fs-1 mb-3 opacity-50"></i>
                     <h5>Không tìm thấy bài hát nào.</h5>
                 </div>`;
+            document.getElementById('paginationContainer').innerHTML = '';
             return;
         }
 
-        songsArr.forEach(song => {
+        // Logic cắt mảng phân trang
+        const totalPages = Math.ceil(songsArr.length / ITEMS_PER_PAGE);
+        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+        const paginatedSongs = songsArr.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+
+        paginatedSongs.forEach(song => {
             const isFav = favorites.includes(song.title);
+            const safeTitle = song.title.replace(/'/g, "\\'");
             const col = document.createElement('div');
-            col.className = 'col-md-6 col-lg-4';
-            col.innerHTML = `
-                <div class="glass-card p-3 h-100 d-flex flex-column justify-content-between">
-                    <div class="d-flex justify-content-between align-items-start" style="cursor: pointer;" onclick="openSongModal('${song.title.replace(/'/g, "\\'")}')">
-                        <div>
-                            <div class="song-title">${song.title}</div>
-                            <div class="song-artist mt-1"><i class="fa-solid fa-microphone-lines fa-sm"></i> ${song.artist}</div>
+            
+            // Xử lý Giao diện tuỳ View Mode
+            if (currentViewMode === 'grid') {
+                col.className = 'col-md-6 col-lg-4';
+                col.innerHTML = `
+                    <div class="glass-card p-3 h-100 d-flex flex-column justify-content-between">
+                        <div class="d-flex justify-content-between align-items-start" style="cursor: pointer;" onclick="openSongModal('${safeTitle}')">
+                            <div>
+                                <div class="song-title">${song.title}</div>
+                                <div class="song-artist mt-1"><i class="fa-solid fa-microphone-lines fa-sm"></i> ${song.artist}</div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top border-secondary">
-                        <button class="btn btn-sm btn-outline-light" onclick="openSongModal('${song.title.replace(/'/g, "\\'")}')">Hát Ngay</button>
-                        <button class="btn-favorite ${isFav ? 'active' : ''}" onclick="toggleFavorite(event, '${song.title.replace(/'/g, "\\'")}')" title="Thêm vào bài tủ">
-                            <i class="fa-solid fa-heart"></i>
-                        </button>
-                    </div>
-                </div>
-            `;
+                        <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top border-secondary">
+                            <button class="btn btn-sm btn-outline-light" onclick="openSongModal('${safeTitle}')">Hát Ngay</button>
+                            <button class="btn-favorite ${isFav ? 'active' : ''}" onclick="toggleFavorite(event, '${safeTitle}')" title="Thêm vào bài tủ">
+                                <i class="fa-solid fa-heart"></i>
+                            </button>
+                        </div>
+                    </div>`;
+            } else {
+                // List Mode
+                col.className = 'col-12';
+                col.innerHTML = `
+                    <div class="glass-card p-3 d-flex flex-row justify-content-between align-items-center w-100" style="transition: 0.2s;">
+                        <div class="d-flex align-items-center w-100" style="cursor: pointer;" onclick="openSongModal('${safeTitle}')">
+                            <div class="me-3 fs-3 text-info d-none d-sm-block"><i class="fa-solid fa-music"></i></div>
+                            <div>
+                                <div class="song-title fs-5">${song.title}</div>
+                                <div class="song-artist"><i class="fa-solid fa-microphone-lines fa-sm"></i> ${song.artist}</div>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center ms-3">
+                            <button class="btn btn-sm btn-outline-light me-3 d-none d-md-block text-nowrap" onclick="openSongModal('${safeTitle}')">Hát Ngay</button>
+                            <button class="btn-favorite ${isFav ? 'active' : ''}" onclick="toggleFavorite(event, '${safeTitle}')" title="Thêm vào bài tủ">
+                                <i class="fa-solid fa-heart"></i>
+                            </button>
+                        </div>
+                    </div>`;
+            }
             container.appendChild(col);
         });
+
+        renderPagination(totalPages);
     }
+
+    // Render Nút Phân Trang
+    function renderPagination(totalPages) {
+        const container = document.getElementById('paginationContainer');
+        container.innerHTML = '';
+        
+        if (totalPages <= 1) return; // Không cần phân trang nếu <= 10 bài
+
+        // Nút Prev
+        let html = `<button class="page-btn" ${currentPage === 1 ? 'disabled' : ''} onclick="changePage(${currentPage - 1})"><i class="fa-solid fa-chevron-left"></i></button>`;
+        
+        // Nút Số trang
+        for(let i = 1; i <= totalPages; i++) {
+            html += `<button class="page-btn ${currentPage === i ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
+        }
+
+        // Nút Next
+        html += `<button class="page-btn" ${currentPage === totalPages ? 'disabled' : ''} onclick="changePage(${currentPage + 1})"><i class="fa-solid fa-chevron-right"></i></button>`;
+        
+        container.innerHTML = html;
+    }
+
+    window.changePage = function(page) {
+        renderSongs(currentRenderList, document.getElementById('btn-fav-tab').classList.contains('active'), page);
+        // Cuộn mượt lên trên cùng khu vực bài hát
+        document.getElementById('toolBar').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
 
     window.openSongModal = function(songTitle) {
         let targetSong = getAllSongs().find(s => s.title === songTitle);
@@ -266,11 +362,11 @@
 
         if (keyword.trim() === '') {
             renderCategories();
-            renderSongs(karaokeDB[currentCategory]);
+            renderSongs(karaokeDB[currentCategory], false, 1);
             return;
         }
         const results = getAllSongs().filter(song => song.title.toLowerCase().includes(keyword) || song.artist.toLowerCase().includes(keyword));
-        renderSongs(results);
+        renderSongs(results, false, 1); // Tìm kiếm luôn reset về trang 1
     };
 
     window.showFavorites = function() {
@@ -279,7 +375,7 @@
         renderCategories();
         document.getElementById('btn-fav-tab').classList.add('active');
         const favSongs = getAllSongs().filter(s => favorites.includes(s.title));
-        renderSongs(favSongs, true);
+        renderSongs(favSongs, true, 1); // Reset trang 1
     };
 
     window.toggleFavorite = function(event, songTitle) {
@@ -289,7 +385,15 @@
             favorites = favorites.filter(t => t !== songTitle);
             btn.classList.remove('active');
             showToast("Đã xóa khỏi Bài Tủ!", "text-bg-warning");
-            if (document.getElementById('btn-fav-tab').classList.contains('active')) showFavorites();
+            
+            // Nếu đang xem tab Bài tủ, xoá xong render lại giữ nguyên trang hiện tại
+            if (document.getElementById('btn-fav-tab').classList.contains('active')) {
+                const favSongs = getAllSongs().filter(s => favorites.includes(s.title));
+                // Nếu trang hiện tại bị rỗng do xoá bài cuối cùng, lùi lại 1 trang
+                const maxPage = Math.ceil(favSongs.length / ITEMS_PER_PAGE);
+                if(currentPage > maxPage && maxPage > 0) currentPage = maxPage;
+                renderSongs(favSongs, true, currentPage);
+            }
         } else {
             favorites.push(songTitle);
             btn.classList.add('active');
@@ -316,7 +420,6 @@
         toastInfo.show();
     }
 
-    // Khởi chạy: Lấy dữ liệu từ Google Sheets thay vì lấy mảng cứng
     window.onload = fetchDataFromSheet;
 </script>
 
