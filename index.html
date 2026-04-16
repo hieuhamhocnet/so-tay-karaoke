@@ -137,14 +137,17 @@
     const modal = new bootstrap.Modal(document.getElementById('songModal'));
     const toastInfo = new bootstrap.Toast(document.getElementById('actionToast'));
 
-    // Hàm gọi dữ liệu từ Google Sheets
+// Hàm gọi dữ liệu từ Google Sheets (Đã nâng cấp chống Cache)
     function fetchDataFromSheet() {
         if (!SHEET_CSV_URL.includes("http")) {
             document.getElementById('loadingArea').innerHTML = "<p class='text-danger'>❌ Bạn chưa dán Link Google Sheets CSV vào code.</p>";
             return;
         }
 
-        Papa.parse(SHEET_CSV_URL, {
+        // KỸ THUẬT CACHE BUSTING: Thêm thời gian thực vào link để ép trình duyệt tải bản mới nhất
+        const noCacheUrl = SHEET_CSV_URL + (SHEET_CSV_URL.includes('?') ? '&' : '?') + 't=' + new Date().getTime();
+
+        Papa.parse(noCacheUrl, {
             download: true,
             header: true,
             complete: function(results) {
@@ -152,16 +155,17 @@
                 karaokeDB = {}; // Reset database
 
                 data.forEach(row => {
-                    if (!row.TenBai) return; // Bỏ qua dòng trống
+                    // Bỏ qua nếu dòng trống
+                    if (!row.TenBai || row.TenBai.trim() === "") return; 
                     
                     const cat = row.DanhMuc ? row.DanhMuc.trim() : "Chưa Phân Loại";
                     if (!karaokeDB[cat]) karaokeDB[cat] = [];
                     
                     karaokeDB[cat].push({
-                        title: row.TenBai,
-                        artist: row.CaSi || "Đang cập nhật",
-                        link: row.Link || "#",
-                        lyrics: row.LoiBaiHat || "Chưa có lời"
+                        title: row.TenBai.trim(),
+                        artist: row.CaSi ? row.CaSi.trim() : "Đang cập nhật",
+                        link: row.Link ? row.Link.trim() : "#",
+                        lyrics: row.LoiBaiHat ? row.LoiBaiHat.trim() : "Chưa có lời"
                     });
                 });
 
@@ -171,7 +175,7 @@
                 
                 const categories = Object.keys(karaokeDB);
                 if (categories.length > 0) {
-                    currentCategory = categories[0]; // Mặc định chọn category đầu tiên
+                    currentCategory = categories[0]; 
                     renderCategories();
                     renderSongs(karaokeDB[currentCategory]);
                 } else {
